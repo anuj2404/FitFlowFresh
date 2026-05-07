@@ -61,7 +61,7 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>{greeting()},</Text>
-            <Text style={styles.name}>Alex 👋</Text>
+            <Text style={styles.name}>Anuj 👋</Text>
           </View>
           <View style={styles.streakBadge}>
             <Text style={styles.streakFire}>🔥</Text>

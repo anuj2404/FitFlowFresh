@@ -1,20 +1,27 @@
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 export default function useProfile() {
-  const [profile, setProfile] = useState({ name: 'Athlete', goal: null, level: null });
+  const { user } = useAuth();
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadProfile();
-  }, []);
+    if (user) loadProfile();
+  }, [user]);
 
   const loadProfile = async () => {
     try {
-      const stored = await AsyncStorage.getItem('user_profile');
-      if (stored) setProfile(JSON.parse(stored));
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      setProfile(data);
     } catch (e) {
-      console.error('Failed to load profile:', e);
+      console.error('Failed to load profile:', e.message);
     } finally {
       setLoading(false);
     }
@@ -22,11 +29,16 @@ export default function useProfile() {
 
   const updateProfile = async (updates) => {
     try {
-      const updated = { ...profile, ...updates };
-      await AsyncStorage.setItem('user_profile', JSON.stringify(updated));
-      setProfile(updated);
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      setProfile(data);
     } catch (e) {
-      console.error('Failed to update profile:', e);
+      console.error('Failed to update profile:', e.message);
     }
   };
 

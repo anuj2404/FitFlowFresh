@@ -8,50 +8,53 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import BarChart from '../components/BarChart';
 import useStreak from '../hooks/useStreak';
+import useProfile from '../hooks/useProfile';
+import useHabits from '../hooks/useHabits';
+import useWorkoutLogs from '../hooks/useWorkoutLogs';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
 
-const QUICK_STATS = [
-  { label: 'Steps', value: '6,240', unit: 'today', color: COLORS.primary, icon: '👟' },
-  { label: 'Water', value: '1.4', unit: 'liters', color: '#4FC3F7', icon: '💧' },
-  { label: 'Calories', value: '1,820', unit: 'kcal', color: COLORS.secondary, icon: '🔥' },
-  { label: 'Sleep', value: '7.5', unit: 'hours', color: '#B39DDB', icon: '🌙' },
-];
+const greeting = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+};
 
-const RECENT_WORKOUTS = [
-  { name: 'Morning Run', duration: '28 min', type: 'Cardio', date: 'Today', emoji: '🏃' },
-  { name: 'Upper Body', duration: '45 min', type: 'Strength', date: 'Yesterday', emoji: '🏋️' },
-  { name: 'Yoga Flow', duration: '30 min', type: 'Flexibility', date: 'Mon', emoji: '🧘' },
-];
+const formatDate = (iso) => {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'short' });
+};
 
 export default function HomeScreen() {
-  const { streak, weeklyData, loading, reload } = useStreak();
+  const { streak, weeklyData, loading: streakLoading, reload: reloadStreak } = useStreak();
+  const { profile } = useProfile();
+  const { habits } = useHabits();
+  const { recentWorkouts, reload: reloadLogs } = useWorkoutLogs();
 
-  // Reload streak when screen comes into focus (after saving log)
   useFocusEffect(
     useCallback(() => {
-      reload();
+      reloadStreak();
+      reloadLogs();
     }, [])
   );
 
-  const greeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
+  const quickStats = [
+    { label: 'Steps', value: habits.steps?.toLocaleString() || '0', unit: 'today', color: COLORS.primary, icon: '👟' },
+    { label: 'Water', value: `${habits.water || 0}`, unit: 'glasses', color: '#4FC3F7', icon: '💧' },
+    { label: 'Sleep', value: `${habits.sleep || 0}`, unit: 'hours', color: '#B39DDB', icon: '🌙' },
+    { label: 'Mood', value: habits.mood || '—', unit: 'today', color: COLORS.warning, icon: '😊' },
+  ];
 
-  // Build bar chart data - show workout days this week
   const chartData = weeklyData.length > 0
-    ? weeklyData.map(d => ({ ...d, value: d.value * (3 + Math.floor(Math.random() * 3)) }))
-    : Array(7).fill(0).map((_, i) => ({
-        label: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][i],
-        value: 0, today: false,
-      }));
-
-  // Use real streak or show 0
-  const displayStreak = streak;
+    ? weeklyData.map((d) => ({ label: d.label, value: d.value > 0 ? 20 + d.steps / 500 : 0, today: d.today }))
+    : Array(7).fill(0).map((_, i) => ({ label: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i], value: 0, today: false }));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -61,11 +64,11 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>{greeting()},</Text>
-            <Text style={styles.name}>Anuj 👋</Text>
+            <Text style={styles.name}>{profile?.name || 'Athlete'} 👋</Text>
           </View>
           <View style={styles.streakBadge}>
             <Text style={styles.streakFire}>🔥</Text>
-            <Text style={styles.streakCount}>{displayStreak}</Text>
+            <Text style={styles.streakCount}>{streak}</Text>
             <Text style={styles.streakLabel}>day streak</Text>
           </View>
         </View>
@@ -74,7 +77,13 @@ export default function HomeScreen() {
         <View style={styles.goalBanner}>
           <View>
             <Text style={styles.goalTitle}>Today's goal</Text>
-            <Text style={styles.goalSub}>Complete your upper body workout</Text>
+            <Text style={styles.goalSub}>
+              {profile?.goal === 'lose' && 'Burn fat and stay active today'}
+              {profile?.goal === 'muscle' && 'Complete your strength workout'}
+              {profile?.goal === 'endurance' && 'Hit your step and cardio goals'}
+              {profile?.goal === 'flex' && 'Stretch and move better today'}
+              {!profile?.goal && 'Log your habits to build your streak'}
+            </Text>
           </View>
           <TouchableOpacity style={styles.goalBtn}>
             <Text style={styles.goalBtnText}>Start →</Text>
@@ -91,34 +100,14 @@ export default function HomeScreen() {
             </View>
           </View>
           <View style={{ marginTop: SPACING.md }}>
-            <BarChart
-              data={
-                weeklyData.length > 0
-                  ? weeklyData.map((d, i) => ({
-                      label: d.label,
-                      value: d.value > 0 ? 20 + i * 5 : 0,
-                      today: d.today,
-                    }))
-                  : [
-                      { label: 'Mon', value: 30, today: false },
-                      { label: 'Tue', value: 45, today: false },
-                      { label: 'Wed', value: 25, today: false },
-                      { label: 'Thu', value: 60, today: false },
-                      { label: 'Fri', value: 40, today: false },
-                      { label: 'Sat', value: 55, today: false },
-                      { label: 'Today', value: 35, today: true },
-                    ]
-              }
-              height={100}
-              color={COLORS.primary}
-            />
+            <BarChart data={chartData} height={100} color={COLORS.primary} />
           </View>
         </View>
 
         {/* Quick Stats */}
         <Text style={styles.sectionTitle}>Today's stats</Text>
         <View style={styles.statsGrid}>
-          {QUICK_STATS.map((stat) => (
+          {quickStats.map((stat) => (
             <View key={stat.label} style={styles.statCard}>
               <Text style={styles.statIcon}>{stat.icon}</Text>
               <Text style={[styles.statValue, { color: stat.color }]}>{stat.value}</Text>
@@ -130,18 +119,24 @@ export default function HomeScreen() {
 
         {/* Recent Workouts */}
         <Text style={styles.sectionTitle}>Recent workouts</Text>
-        {RECENT_WORKOUTS.map((workout) => (
-          <TouchableOpacity key={workout.name} style={styles.workoutRow}>
-            <View style={styles.workoutIcon}>
-              <Text style={{ fontSize: 20 }}>{workout.emoji}</Text>
+        {recentWorkouts.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No workouts logged yet. Start one! 💪</Text>
+          </View>
+        ) : (
+          recentWorkouts.map((log) => (
+            <View key={log.id} style={styles.workoutRow}>
+              <View style={styles.workoutIcon}>
+                <Text style={{ fontSize: 20 }}>{log.workouts?.emoji}</Text>
+              </View>
+              <View style={styles.workoutInfo}>
+                <Text style={styles.workoutName}>{log.workouts?.name}</Text>
+                <Text style={styles.workoutMeta}>{log.workouts?.duration} · {log.workouts?.category}</Text>
+              </View>
+              <Text style={styles.workoutDate}>{formatDate(log.completed_at)}</Text>
             </View>
-            <View style={styles.workoutInfo}>
-              <Text style={styles.workoutName}>{workout.name}</Text>
-              <Text style={styles.workoutMeta}>{workout.duration} · {workout.type}</Text>
-            </View>
-            <Text style={styles.workoutDate}>{workout.date}</Text>
-          </TouchableOpacity>
-        ))}
+          ))
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -188,4 +183,7 @@ const styles = StyleSheet.create({
   workoutName: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '600' },
   workoutMeta: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
   workoutDate: { fontSize: 12, color: COLORS.textMuted },
+
+  emptyCard: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, padding: SPACING.lg, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+  emptyText: { fontSize: 14, color: COLORS.textSecondary },
 });

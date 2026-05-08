@@ -1,37 +1,32 @@
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
-const getTodayKey = () => {
-  const today = new Date();
-  return `habits_${today.getFullYear()}_${today.getMonth()}_${today.getDate()}`;
-};
+const getToday = () => new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
 
-const DEFAULT_HABITS = {
-  water: 0,
-  steps: 0,
-  sleep: 7,
-  mood: null,
-  saved: false,
-};
+const DEFAULT_HABITS = { water: 0, steps: 0, sleep: 7, mood: null, saved: false };
 
 export default function useHabits() {
+  const { user } = useAuth();
   const [habits, setHabits] = useState(DEFAULT_HABITS);
   const [loading, setLoading] = useState(true);
 
-  // Load today's habits from storage on mount
   useEffect(() => {
-    loadHabits();
-  }, []);
+    if (user) loadHabits();
+  }, [user]);
 
   const loadHabits = async () => {
     try {
-      const key = getTodayKey();
-      const stored = await AsyncStorage.getItem(key);
-      if (stored) {
-        setHabits(JSON.parse(stored));
-      }
+      const { data, error } = await supabase
+        .from('habit_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('date', getToday())
+        .maybeSingle();
+      if (error) throw error;
+      if (data) setHabits(data);
     } catch (e) {
-      console.error('Failed to load habits:', e);
+      console.error('Failed to load habits:', e.message);
     } finally {
       setLoading(false);
     }
@@ -39,13 +34,22 @@ export default function useHabits() {
 
   const saveHabits = async (updatedHabits) => {
     try {
-      const key = getTodayKey();
-      const toSave = { ...updatedHabits, saved: true };
-      await AsyncStorage.setItem(key, JSON.stringify(toSave));
-      setHabits(toSave);
+      const { error } = await supabase
+        .from('habit_logs')
+        .upsert({
+          user_id: user.id,
+          date: getToday(),
+          water: updatedHabits.water,
+          steps: updatedHabits.steps,
+          sleep: updatedHabits.sleep,
+          mood: updatedHabits.mood,
+          saved: true,
+        }, { onConflict: 'user_id,date' });
+      if (error) throw error;
+      setHabits({ ...updatedHabits, saved: true });
       return true;
     } catch (e) {
-      console.error('Failed to save habits:', e);
+      console.error('Failed to save habits:', e.message);
       return false;
     }
   };
@@ -54,32 +58,5 @@ export default function useHabits() {
     setHabits((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Load streak count across days
-  const getStreak = async () => {
-    let streak = 0;
-    const today = new Date();
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = `habits_${d.getFullYear()}_${d.getMonth()}_${d.getDate()}`;
-      try {
-        const stored = await AsyncStorage.getItem(key);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.saved) {
-            streak++;
-          } else {
-            break;
-          }
-        } else {
-          break;
-        }
-      } catch {
-        break;
-      }
-    }
-    return streak;
-  };
-
-  return { habits, loading, updateHabit, saveHabits, getStreak };
+  return { habits, loading, updateHabit, saveHabits };
 }

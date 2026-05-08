@@ -1,13 +1,16 @@
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Switch,
+  TouchableOpacity, Switch, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import BarChart from '../components/BarChart';
 import useStreak from '../hooks/useStreak';
+import useProfile from '../hooks/useProfile';
+import useWorkoutLogs from '../hooks/useWorkoutLogs';
+import { useAuth } from '../context/AuthContext';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 const GOALS = [
@@ -24,15 +27,35 @@ const SETTINGS = [
 ];
 
 export default function ProfileScreen() {
-  const [activeGoal, setActiveGoal] = useState('muscle');
-  const [toggles, setToggles] = useState({ reminder: true, workoutNotif: false, weeklySummary: true });
   const { streak, weeklyData, weeklyAverages, loading, reload } = useStreak();
+  const { profile, updateProfile } = useProfile();
+  const { totalCount, reload: reloadLogs } = useWorkoutLogs();
+  const { signOut } = useAuth();
 
-  useFocusEffect(useCallback(() => { reload(); }, []));
+  const handleSignOut = async () => {
+    try { await signOut(); } catch (e) { Alert.alert('Error', e.message); }
+  };
 
-  const toggle = (key) => setToggles((prev) => ({ ...prev, [key]: !prev[key] }));
+  useFocusEffect(useCallback(() => { reload(); reloadLogs(); }, []));
+
+  // Derive active goal and toggles from real profile data
+  const activeGoal = profile?.goal || null;
+  const toggles = profile?.notifications || { reminder: true, workoutNotif: false, weeklySummary: true };
+
+  const toggle = async (key) => {
+    const updated = { ...toggles, [key]: !toggles[key] };
+    await updateProfile({ notifications: updated });
+  };
+
+  const handleGoalSelect = async (goalId) => {
+    await updateProfile({ goal: goalId });
+  };
 
   const daysLogged = weeklyData.filter(d => d.value > 0).length;
+
+  const joinedDate = profile?.joined_at
+    ? new Date(profile.joined_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -41,18 +64,18 @@ export default function ProfileScreen() {
         {/* Avatar */}
         <View style={styles.avatarSection}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>A</Text>
+            <Text style={styles.avatarText}>{profile?.name?.[0]?.toUpperCase() || '?'}</Text>
           </View>
-          <Text style={styles.name}>Alex Johnson</Text>
-          <Text style={styles.joined}>Member since May 2025</Text>
+          <Text style={styles.name}>{profile?.name || 'Athlete'}</Text>
+          {joinedDate && <Text style={styles.joined}>Member since {joinedDate}</Text>}
         </View>
 
-        {/* Stats Row - now using real data */}
+        {/* Stats Row */}
         <View style={styles.statsRow}>
           {[
             { label: 'Streak', value: `${streak}d`, color: COLORS.primary },
             { label: 'This week', value: `${daysLogged}/7`, color: COLORS.warning },
-            { label: 'Workouts', value: '48', color: '#4FC3F7' },
+            { label: 'Workouts', value: `${totalCount}`, color: '#4FC3F7' },
           ].map((s, i) => (
             <View key={s.label} style={[styles.statItem, i < 2 && { borderRightWidth: 1, borderRightColor: COLORS.border }]}>
               <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
@@ -104,7 +127,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               key={g.id}
               style={[styles.goalChip, activeGoal === g.id && styles.goalChipActive]}
-              onPress={() => setActiveGoal(g.id)}
+              onPress={() => handleGoalSelect(g.id)}
             >
               <Text style={styles.goalEmoji}>{g.emoji}</Text>
               <Text style={[styles.goalLabel, activeGoal === g.id && styles.goalLabelActive]}>
@@ -133,7 +156,7 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <TouchableOpacity style={styles.signOutBtn}>
+        <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Ionicons name="log-out-outline" size={18} color={COLORS.danger} />
           <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>

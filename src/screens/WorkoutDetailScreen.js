@@ -1,83 +1,25 @@
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Alert, Animated,
+  TouchableOpacity, Alert, Animated, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useExercises } from '../hooks/useWorkouts';
+import useWorkoutLogs from '../hooks/useWorkoutLogs';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
-const EXERCISES_MAP = {
-  'Full Body Blast': [
-    { name: 'Barbell Squat', sets: 4, reps: '8-10', rest: 90 },
-    { name: 'Bench Press', sets: 4, reps: '8-10', rest: 90 },
-    { name: 'Deadlift', sets: 3, reps: '6-8', rest: 120 },
-    { name: 'Pull-ups', sets: 3, reps: '8-12', rest: 60 },
-    { name: 'Overhead Press', sets: 3, reps: '10-12', rest: 60 },
-    { name: 'Dumbbell Row', sets: 3, reps: '10-12', rest: 60 },
-    { name: 'Plank', sets: 3, reps: '45 sec', rest: 30 },
-    { name: 'Face Pulls', sets: 3, reps: '15-20', rest: 30 },
-  ],
-  '5K Runner Prep': [
-    { name: 'Dynamic Warmup', sets: 1, reps: '5 min', rest: 0 },
-    { name: 'Easy Jog', sets: 1, reps: '10 min', rest: 0 },
-    { name: 'Tempo Intervals', sets: 4, reps: '400m', rest: 90 },
-    { name: 'Hill Repeats', sets: 3, reps: '200m', rest: 60 },
-    { name: 'Cool Down Walk', sets: 1, reps: '5 min', rest: 0 },
-  ],
-  'Morning Yoga': [
-    { name: "Child's Pose", sets: 1, reps: '60 sec', rest: 0 },
-    { name: 'Cat-Cow Stretch', sets: 1, reps: '10 reps', rest: 0 },
-    { name: 'Sun Salutation', sets: 3, reps: '5 reps', rest: 0 },
-    { name: 'Warrior I', sets: 1, reps: '45 sec each', rest: 0 },
-    { name: 'Warrior II', sets: 1, reps: '45 sec each', rest: 0 },
-    { name: 'Triangle Pose', sets: 1, reps: '30 sec each', rest: 0 },
-    { name: 'Seated Forward Fold', sets: 1, reps: '60 sec', rest: 0 },
-    { name: 'Savasana', sets: 1, reps: '3 min', rest: 0 },
-  ],
-  'Tabata Burn': [
-    { name: 'Jump Squats', sets: 8, reps: '20s on / 10s off', rest: 0 },
-    { name: 'Burpees', sets: 8, reps: '20s on / 10s off', rest: 0 },
-    { name: 'Mountain Climbers', sets: 8, reps: '20s on / 10s off', rest: 0 },
-    { name: 'Push-up Jacks', sets: 8, reps: '20s on / 10s off', rest: 0 },
-    { name: 'High Knees', sets: 8, reps: '20s on / 10s off', rest: 0 },
-    { name: 'Jump Lunges', sets: 8, reps: '20s on / 10s off', rest: 0 },
-  ],
-  'Upper Body Push': [
-    { name: 'Incline Bench Press', sets: 4, reps: '8-10', rest: 90 },
-    { name: 'Flat Dumbbell Press', sets: 3, reps: '10-12', rest: 60 },
-    { name: 'Overhead Press', sets: 4, reps: '8-10', rest: 90 },
-    { name: 'Lateral Raises', sets: 3, reps: '12-15', rest: 45 },
-    { name: 'Tricep Dips', sets: 3, reps: '10-15', rest: 60 },
-    { name: 'Cable Pushdown', sets: 3, reps: '12-15', rest: 45 },
-    { name: 'Front Raises', sets: 3, reps: '12-15', rest: 45 },
-  ],
-  'Core & Abs': [
-    { name: 'Plank', sets: 3, reps: '60 sec', rest: 30 },
-    { name: 'Crunches', sets: 3, reps: '20 reps', rest: 30 },
-    { name: 'Leg Raises', sets: 3, reps: '15 reps', rest: 30 },
-    { name: 'Russian Twists', sets: 3, reps: '20 reps', rest: 30 },
-    { name: 'Dead Bug', sets: 3, reps: '10 each side', rest: 30 },
-    { name: 'Ab Wheel Rollout', sets: 3, reps: '10 reps', rest: 45 },
-    { name: 'Side Plank', sets: 3, reps: '30 sec each', rest: 30 },
-    { name: 'Bicycle Crunches', sets: 3, reps: '20 reps', rest: 30 },
-    { name: 'Mountain Climbers', sets: 3, reps: '30 sec', rest: 30 },
-  ],
-};
-
-// Rest Timer Component
 function RestTimer({ seconds, onDone }) {
   const [timeLeft, setTimeLeft] = useState(seconds);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (timeLeft <= 0) { onDone(); return; }
-    // Pulse animation
     Animated.sequence([
       Animated.timing(scaleAnim, { toValue: 1.05, duration: 400, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
-    const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
+    const timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearTimeout(timer);
   }, [timeLeft]);
 
@@ -112,41 +54,36 @@ const timerStyles = StyleSheet.create({
 
 export default function WorkoutDetailScreen({ route, navigation }) {
   const { workout } = route.params;
-  const exercises = EXERCISES_MAP[workout.name] || [];
+  const { exercises, loading } = useExercises(workout.id);
+  const { logWorkout } = useWorkoutLogs();
   const [completed, setCompleted] = useState({});
   const [showTimer, setShowTimer] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(60);
-
-  // Celebration animation
   const celebAnim = useRef(new Animated.Value(0)).current;
 
   const completedCount = Object.values(completed).filter(Boolean).length;
-  const allDone = completedCount === exercises.length && exercises.length > 0;
+  const allDone = exercises.length > 0 && completedCount === exercises.length;
 
   const toggleExercise = (index) => {
     const wasCompleted = completed[index];
     setCompleted((prev) => ({ ...prev, [index]: !prev[index] }));
-
-    // Start rest timer when completing an exercise (if it has rest time)
-    if (!wasCompleted && exercises[index].rest > 0) {
-      setTimerSeconds(exercises[index].rest);
+    if (!wasCompleted && exercises[index].rest_seconds > 0) {
+      setTimerSeconds(exercises[index].rest_seconds);
       setShowTimer(true);
     }
   };
 
-  // Celebration bounce when all done
   useEffect(() => {
     if (allDone) {
-      Animated.spring(celebAnim, {
-        toValue: 1,
-        tension: 50,
-        friction: 3,
-        useNativeDriver: true,
-      }).start();
+      Animated.spring(celebAnim, { toValue: 1, tension: 50, friction: 3, useNativeDriver: true }).start();
     }
   }, [allDone]);
 
-  const handleFinish = () => {
+  const handleTimerDone = useCallback(() => setShowTimer(false), []);
+  const handleGoBack = useCallback(() => navigation.goBack(), [navigation]);
+
+  const handleFinish = async () => {
+    await logWorkout(workout.id, completedCount);
     Alert.alert(
       'Workout Complete! 🎉',
       `Amazing work! You finished ${workout.name} with ${exercises.length} exercises.`,
@@ -154,16 +91,21 @@ export default function WorkoutDetailScreen({ route, navigation }) {
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safe, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={COLORS.primary} size="large" />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Rest Timer Overlay */}
-      {showTimer && (
-        <RestTimer seconds={timerSeconds} onDone={() => setShowTimer(false)} />
-      )}
+      {showTimer && <RestTimer seconds={timerSeconds} onDone={handleTimerDone} />}
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
@@ -177,35 +119,30 @@ export default function WorkoutDetailScreen({ route, navigation }) {
       <View style={styles.progressRow}>
         <Text style={styles.progressText}>{completedCount} / {exercises.length} exercises</Text>
         <View style={styles.progressTrack}>
-          <Animated.View
-            style={[styles.progressFill, { width: `${(completedCount / exercises.length) * 100}%` }]}
-          />
+          <View style={[styles.progressFill, { width: `${exercises.length ? (completedCount / exercises.length) * 100 : 0}%` }]} />
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         {exercises.map((ex, i) => (
           <TouchableOpacity
-            key={i}
+            key={ex.id}
             style={[styles.exerciseCard, completed[i] && styles.exerciseCardDone]}
-            onPress={() => toggleExercise(i)}
+            onPress={() => toggleExercise(i)}  // index-dependent, inline is acceptable here
           >
             <View style={[styles.checkbox, completed[i] && styles.checkboxDone]}>
               {completed[i] && <Ionicons name="checkmark" size={16} color="#001A13" />}
             </View>
             <View style={styles.exerciseInfo}>
-              <Text style={[styles.exerciseName, completed[i] && styles.exerciseNameDone]}>
-                {ex.name}
-              </Text>
+              <Text style={[styles.exerciseName, completed[i] && styles.exerciseNameDone]}>{ex.name}</Text>
               <Text style={styles.exerciseMeta}>
-                {ex.sets} sets · {ex.reps}
-                {ex.rest > 0 ? ` · ${ex.rest}s rest` : ''}
+                {ex.sets} sets · {ex.reps}{ex.rest_seconds > 0 ? ` · ${ex.rest_seconds}s rest` : ''}
               </Text>
             </View>
-            {ex.rest > 0 && (
+            {ex.rest_seconds > 0 && (
               <TouchableOpacity
                 style={styles.timerBtn}
-                onPress={() => { setTimerSeconds(ex.rest); setShowTimer(true); }}
+                onPress={() => { setTimerSeconds(ex.rest_seconds); setShowTimer(true); }}  // rest_seconds-dependent
               >
                 <Ionicons name="timer-outline" size={18} color={COLORS.primary} />
               </TouchableOpacity>
@@ -213,7 +150,6 @@ export default function WorkoutDetailScreen({ route, navigation }) {
           </TouchableOpacity>
         ))}
 
-        {/* Finish Button */}
         <Animated.View style={allDone ? {
           transform: [{ scale: celebAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] }) }]
         } : {}}>
@@ -222,7 +158,7 @@ export default function WorkoutDetailScreen({ route, navigation }) {
             onPress={allDone ? handleFinish : null}
           >
             <Ionicons
-              name={allDone ? "trophy" : "lock-closed-outline"}
+              name={allDone ? 'trophy' : 'lock-closed-outline'}
               size={18}
               color={allDone ? '#001A13' : COLORS.textMuted}
             />

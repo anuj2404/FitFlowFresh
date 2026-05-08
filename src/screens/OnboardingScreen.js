@@ -1,11 +1,11 @@
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, Animated, Dimensions, KeyboardAvoidingView, Platform,
+  TextInput, Animated, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -19,7 +19,7 @@ const GOALS = [
 
 const STEP_COUNT = 3;
 
-export default function OnboardingScreen({ onComplete }) {
+export default function OnboardingScreen({ onComplete, authCredentials }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [goal, setGoal] = useState(null);
@@ -46,14 +46,25 @@ export default function OnboardingScreen({ onComplete }) {
     else handleFinish();
   };
 
+  const { signUp } = useAuth();
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
   const handleFinish = async () => {
-    await AsyncStorage.setItem('user_profile', JSON.stringify({
-      name: name.trim() || 'Athlete',
-      goal, level,
-      joinedAt: new Date().toISOString(),
-    }));
-    await AsyncStorage.setItem('onboarding_complete', 'true');
-    onComplete();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await signUp(authCredentials.email, authCredentials.password, {
+        name: name.trim() || 'Athlete',
+        goal,
+        level,
+      });
+      onComplete();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const canProceed = () => {
@@ -151,16 +162,28 @@ export default function OnboardingScreen({ onComplete }) {
           )}
         </Animated.View>
 
+        {/* Error */}
+        {error && (
+          <Text style={{ color: COLORS.danger, textAlign: 'center', marginHorizontal: SPACING.md, marginBottom: SPACING.sm, fontSize: 13 }}>
+            {error}
+          </Text>
+        )}
+
         {/* Next Button */}
         <View style={styles.footer}>
           <TouchableOpacity
-            style={[styles.nextBtn, !canProceed() && styles.nextBtnDisabled]}
-            onPress={canProceed() ? handleNext : null}
+            style={[styles.nextBtn, (!canProceed() || submitting) && styles.nextBtnDisabled]}
+            onPress={canProceed() && !submitting ? handleNext : null}
           >
-            <Text style={[styles.nextBtnText, !canProceed() && styles.nextBtnTextDisabled]}>
-              {step === STEP_COUNT - 1 ? "Let's Go 🚀" : 'Continue'}
-            </Text>
-            {canProceed() && <Ionicons name="arrow-forward" size={18} color="#001A13" />}
+            {submitting
+              ? <ActivityIndicator color="#001A13" />
+              : <>
+                  <Text style={[styles.nextBtnText, !canProceed() && styles.nextBtnTextDisabled]}>
+                    {step === STEP_COUNT - 1 ? "Let's Go 🚀" : 'Continue'}
+                  </Text>
+                  {canProceed() && <Ionicons name="arrow-forward" size={18} color="#001A13" />}
+                </>
+            }
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

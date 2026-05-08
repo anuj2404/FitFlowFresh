@@ -3,10 +3,11 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import * as Notifications from 'expo-notifications';
-import { Platform, StyleSheet, Animated } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform, StyleSheet, Animated, ActivityIndicator, View } from 'react-native';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import AuthScreen from './src/screens/AuthScreen';
 import { COLORS } from './src/constants/theme';
 
 Notifications.setNotificationHandler({
@@ -17,20 +18,27 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export default function App() {
-  const [appReady, setAppReady] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+function AppContent() {
+  const { user, loading } = useAuth();
+  const [pendingAuth, setPendingAuth] = useState(null); // { email, password } from AuthScreen signup
   const fadeAnim = useState(new Animated.Value(0))[0];
 
   useEffect(() => {
-    initApp();
+    if (!loading) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    setupNotifications();
   }, []);
 
-  const initApp = async () => {
+  const setupNotifications = async () => {
     try {
-      const onboardingDone = await AsyncStorage.getItem('onboarding_complete');
-      setShowOnboarding(onboardingDone !== 'true');
-
       if (Platform.OS === 'android') {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status === 'granted') {
@@ -43,31 +51,48 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error('Init error:', e);
-    } finally {
-      setAppReady(true);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
+      // expo-notifications not fully supported in Expo Go — safe to ignore
     }
   };
 
-  if (!appReady) return null;
+  if (loading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={COLORS.primary} size="large" />
+      </View>
+    );
+  }
+
+  // New sign up flow: collect profile info before account is created
+  if (pendingAuth) {
+    return (
+      <OnboardingScreen
+        authCredentials={pendingAuth}
+        onComplete={() => setPendingAuth(null)}
+      />
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen onNeedOnboarding={(creds) => setPendingAuth(creds)} />;
+  }
 
   return (
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+      <NavigationContainer>
+        <RootNavigator />
+        <StatusBar style="light" />
+      </NavigationContainer>
+    </Animated.View>
+  );
+}
+
+export default function App() {
+  return (
     <SafeAreaProvider>
-      <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-        {showOnboarding ? (
-          <OnboardingScreen onComplete={() => setShowOnboarding(false)} />
-        ) : (
-          <NavigationContainer>
-            <RootNavigator />
-            <StatusBar style="light" />
-          </NavigationContainer>
-        )}
-      </Animated.View>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

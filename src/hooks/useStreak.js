@@ -1,99 +1,88 @@
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function useStreak() {
+  const { user } = useAuth();
   const [streak, setStreak] = useState(0);
   const [weeklyData, setWeeklyData] = useState([]);
-  const [weeklyHabits, setWeeklyHabits] = useState([]);
+  const [weeklyAverages, setWeeklyAverages] = useState({ water: 0, steps: 0, sleep: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadStreakData();
-  }, []);
+    if (user) loadStreakData();
+  }, [user]);
 
   const loadStreakData = async () => {
     try {
       const today = new Date();
+
+      // Build last 30 days date range for streak + last 7 for weekly chart
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(today.getDate() - 29);
+
+      const { data, error } = await supabase
+        .from('habit_logs')
+        .select('date, water, steps, sleep, saved')
+        .eq('user_id', user.id)
+        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      // Map data by date string for quick lookup
+      const byDate = {};
+      (data || []).forEach((row) => { byDate[row.date] = row; });
+
+      // Calculate streak (consecutive saved days going back from today)
       let currentStreak = 0;
-      const weekly = [];
-      const habitsWeekly = [];
-
-      // Build last 7 days of data
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        const key = `habits_${d.getFullYear()}_${d.getMonth()}_${d.getDate()}`;
-        const dayLabel = DAY_LABELS[d.getDay()];
-        const isToday = i === 0;
-
-        try {
-          const stored = await AsyncStorage.getItem(key);
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            weekly.push({
-              label: isToday ? 'Today' : dayLabel,
-              value: parsed.saved ? 1 : 0,
-              today: isToday,
-              water: parsed.water || 0,
-              steps: parsed.steps || 0,
-              sleep: parsed.sleep || 0,
-            });
-            habitsWeekly.push(parsed);
-          } else {
-            weekly.push({ label: isToday ? 'Today' : dayLabel, value: 0, today: isToday, water: 0, steps: 0, sleep: 0 });
-            habitsWeekly.push(null);
-          }
-        } catch {
-          weekly.push({ label: isToday ? 'Today' : dayLabel, value: 0, today: isToday, water: 0, steps: 0, sleep: 0 });
-          habitsWeekly.push(null);
-        }
-      }
-
-      // Calculate streak (consecutive days saved going back from today)
       for (let i = 0; i < 30; i++) {
         const d = new Date(today);
         d.setDate(today.getDate() - i);
-        const key = `habits_${d.getFullYear()}_${d.getMonth()}_${d.getDate()}`;
-        try {
-          const stored = await AsyncStorage.getItem(key);
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (parsed.saved) {
-              currentStreak++;
-            } else {
-              break;
-            }
-          } else {
-            break;
-          }
-        } catch {
+        const key = d.toISOString().split('T')[0];
+        if (byDate[key]?.saved) {
+          currentStreak++;
+        } else {
           break;
         }
       }
 
+      // Build last 7 days for chart
+      const weekly = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const key = d.toISOString().split('T')[0];
+        const row = byDate[key];
+        weekly.push({
+          label: i === 0 ? 'Today' : DAY_LABELS[d.getDay()],
+          value: row?.saved ? 1 : 0,
+          today: i === 0,
+          water: row?.water || 0,
+          steps: row?.steps || 0,
+          sleep: row?.sleep || 0,
+        });
+      }
+
+      // Weekly averages (only days that were saved)
+      const savedDays = weekly.filter((d) => d.value > 0);
+      const count = savedDays.length || 1;
+      const averages = {
+        water: Math.round(savedDays.reduce((a, d) => a + d.water, 0) / count),
+        steps: Math.round(savedDays.reduce((a, d) => a + d.steps, 0) / count),
+        sleep: parseFloat((savedDays.reduce((a, d) => a + d.sleep, 0) / count).toFixed(1)),
+      };
+
       setStreak(currentStreak);
       setWeeklyData(weekly);
-      setWeeklyHabits(habitsWeekly);
+      setWeeklyAverages(averages);
     } catch (e) {
-      console.error('Failed to load streak data:', e);
+      console.error('Failed to load streak data:', e.message);
     } finally {
       setLoading(false);
     }
-  };
-
-  // Weekly averages for habit trends
-  const weeklyAverages = {
-    water: weeklyData.length
-      ? Math.round(weeklyData.reduce((a, d) => a + d.water, 0) / weeklyData.filter(d => d.value).length || 0)
-      : 0,
-    steps: weeklyData.length
-      ? Math.round(weeklyData.reduce((a, d) => a + d.steps, 0) / weeklyData.filter(d => d.value).length || 0)
-      : 0,
-    sleep: weeklyData.length
-      ? parseFloat((weeklyData.reduce((a, d) => a + d.sleep, 0) / (weeklyData.filter(d => d.value).length || 1)).toFixed(1))
-      : 0,
   };
 
   return { streak, weeklyData, weeklyAverages, loading, reload: loadStreakData };

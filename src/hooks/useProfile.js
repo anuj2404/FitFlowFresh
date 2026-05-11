@@ -17,11 +17,27 @@ export default function useProfile() {
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
-      setProfile(data);
+      if (!data) {
+        // Manually created user — upsert a default profile row
+        const { data: created, error: upsertError } = await supabase
+          .from('profiles')
+          .upsert({ id: user.id, name: user.email?.split('@')[0] })
+          .select()
+          .single();
+        if (upsertError) {
+          // RLS may block insert; fall back to a local placeholder so UI isn't blank
+          setProfile({ id: user.id, name: user.email?.split('@')[0] });
+        } else {
+          setProfile(created);
+        }
+      } else {
+        setProfile(data);
+      }
     } catch (e) {
       console.error('Failed to load profile:', e.message);
+      setProfile({ id: user.id, name: user.email?.split('@')[0] });
     } finally {
       setLoading(false);
     }

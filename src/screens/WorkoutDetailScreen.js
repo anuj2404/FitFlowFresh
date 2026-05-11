@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useExercises } from '../hooks/useWorkouts';
 import useWorkoutLogs from '../hooks/useWorkoutLogs';
+import useProfile from '../hooks/useProfile';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 function RestTimer({ seconds, onDone }) {
@@ -56,6 +57,7 @@ export default function WorkoutDetailScreen({ route, navigation }) {
   const { workout } = route.params;
   const { exercises, loading } = useExercises(workout.id);
   const { logWorkout } = useWorkoutLogs();
+  const { profile } = useProfile();
   const [completed, setCompleted] = useState({});
   const [showTimer, setShowTimer] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(60);
@@ -86,7 +88,7 @@ export default function WorkoutDetailScreen({ route, navigation }) {
     await logWorkout(workout.id, completedCount);
     Alert.alert(
       'Workout Complete! 🎉',
-      `Amazing work! You finished ${workout.name} with ${exercises.length} exercises.`,
+      `${profile?.name ? `Great work, ${profile.name}!` : 'Amazing work!'} You finished ${workout.name} with ${exercises.length} exercises.`,
       [{ text: 'Back to Workouts', onPress: () => navigation.goBack() }]
     );
   };

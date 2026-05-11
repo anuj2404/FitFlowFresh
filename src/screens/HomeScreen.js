@@ -4,8 +4,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useCallback, useState } from 'react';
 import BarChart from '../components/BarChart';
 import useStreak from '../hooks/useStreak';
 import useProfile from '../hooks/useProfile';
@@ -14,6 +14,54 @@ import useWorkoutLogs from '../hooks/useWorkoutLogs';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
+
+const GOAL_CONFIG = {
+  lose:      { emoji: '⚖️', title: 'Burn fat & stay active',       targets: { steps: 8000, water: 8 } },
+  muscle:    { emoji: '💪', title: 'Complete your strength workout', targets: { water: 6 } },
+  endurance: { emoji: '🏃', title: 'Hit your cardio goals',         targets: { steps: 10000, water: 8 } },
+  flex:      { emoji: '🧘', title: 'Stretch and move better',       targets: { sleep: 8, water: 6 } },
+};
+
+const CHART_METRICS = [
+  { key: 'steps', label: 'Steps', color: COLORS.primary, max: 10000 },
+  { key: 'water', label: 'Water', color: '#4FC3F7', max: 8 },
+  { key: 'sleep', label: 'Sleep', color: '#B39DDB', max: 8 },
+];
+
+const getDynamicGoal = (goal, habits, recentWorkouts) => {
+  const config = GOAL_CONFIG[goal];
+  if (!config) return { label: 'Log your habits to build your streak', progress: null };
+
+  const { targets } = config;
+  const checks = [];
+
+  if (targets.steps) checks.push({ done: (habits.steps || 0) >= targets.steps, text: `${(habits.steps || 0).toLocaleString()}/${targets.steps.toLocaleString()} steps` });
+  if (targets.water) checks.push({ done: (habits.water || 0) >= targets.water, text: `${habits.water || 0}/${targets.water} glasses` });
+  if (targets.sleep) checks.push({ done: (habits.sleep || 0) >= targets.sleep, text: `${habits.sleep || 0}/${targets.sleep}h sleep` });
+
+  const today = new Date().toDateString();
+  const workedOutToday = recentWorkouts.some(w => new Date(w.completed_at).toDateString() === today);
+  if (goal === 'muscle' || goal === 'endurance') {
+    checks.push({ done: workedOutToday, text: workedOutToday ? 'Workout done ✓' : 'No workout yet' });
+  }
+
+  const done = checks.filter(c => c.done).length;
+  const total = checks.length;
+  const allDone = done === total;
+
+  return {
+    label: allDone ? 'All done! Great work today 🎉' : config.title,
+    sub: checks.map(c => c.text).join('  ·  '),
+    progress: total > 0 ? done / total : null,
+    allDone,
+  };
+};
+
+const streakColor = (streak) => {
+  if (streak >= 14) return '#FF6B6B';
+  if (streak >= 7)  return COLORS.warning;
+  return COLORS.primary;
+};
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -33,10 +81,26 @@ const formatDate = (iso) => {
 };
 
 export default function HomeScreen() {
-  const { streak, weeklyData, loading: streakLoading, reload: reloadStreak } = useStreak();
+  const { streak, weeklyData, reload: reloadStreak } = useStreak();
   const { profile } = useProfile();
   const { habits } = useHabits();
   const { recentWorkouts, reload: reloadLogs } = useWorkoutLogs();
+  const [chartMetricIdx, setChartMetricIdx] = useState(0);
+
+  const navigation = useNavigation();
+  const dynamicGoal = getDynamicGoal(profile?.goal, habits, recentWorkouts);
+  const sColor = streakColor(streak);
+  const chartMetric = CHART_METRICS[chartMetricIdx];
+
+  const handleStartGoal = () => {
+    if (dynamicGoal.allDone) return;
+    const workoutGoals = ['muscle', 'endurance'];
+    if (workoutGoals.includes(profile?.goal)) {
+      navigation.navigate('Workouts');
+    } else {
+      navigation.navigate('Log');
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -45,15 +109,41 @@ export default function HomeScreen() {
     }, [])
   );
 
+  // Goal-aware stat targets
+  const goalTargets = GOAL_CONFIG[profile?.goal]?.targets || {};
   const quickStats = [
-    { label: 'Steps', value: habits.steps?.toLocaleString() || '0', unit: 'today', color: COLORS.primary, icon: '👟' },
-    { label: 'Water', value: `${habits.water || 0}`, unit: 'glasses', color: '#4FC3F7', icon: '💧' },
-    { label: 'Sleep', value: `${habits.sleep || 0}`, unit: 'hours', color: '#B39DDB', icon: '🌙' },
-    { label: 'Mood', value: habits.mood || '—', unit: 'today', color: COLORS.warning, icon: '😊' },
+    {
+      label: 'Steps', value: habits.steps?.toLocaleString() || '0',
+      unit: goalTargets.steps ? `/ ${goalTargets.steps.toLocaleString()}` : 'today',
+      color: habits.steps >= (goalTargets.steps || Infinity) ? COLORS.primary : COLORS.textSecondary,
+      icon: '👟',
+    },
+    {
+      label: 'Water', value: `${habits.water || 0}`,
+      unit: goalTargets.water ? `/ ${goalTargets.water} glasses` : 'glasses',
+      color: habits.water >= (goalTargets.water || Infinity) ? '#4FC3F7' : COLORS.textSecondary,
+      icon: '💧',
+    },
+    {
+      label: 'Sleep', value: `${habits.sleep || 0}`,
+      unit: goalTargets.sleep ? `/ ${goalTargets.sleep}h` : 'hours',
+      color: habits.sleep >= (goalTargets.sleep || Infinity) ? '#B39DDB' : COLORS.textSecondary,
+      icon: '🌙',
+    },
+    {
+      label: 'Mood', value: habits.mood || '—',
+      unit: 'today', color: COLORS.warning, icon: '😊',
+    },
   ];
 
   const chartData = weeklyData.length > 0
-    ? weeklyData.map((d) => ({ label: d.label, value: d.value > 0 ? 20 + d.steps / 500 : 0, today: d.today }))
+    ? weeklyData.map((d) => ({
+        label: d.label,
+        value: chartMetric.key === 'steps'
+          ? (d.steps > 0 ? 20 + d.steps / 500 : 0)
+          : d[chartMetric.key] || 0,
+        today: d.today,
+      }))
     : Array(7).fill(0).map((_, i) => ({ label: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i], value: 0, today: false }));
 
   return (
@@ -66,27 +156,27 @@ export default function HomeScreen() {
             <Text style={styles.greeting}>{greeting()},</Text>
             <Text style={styles.name}>{profile?.name || 'Athlete'} 👋</Text>
           </View>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakFire}>🔥</Text>
-            <Text style={styles.streakCount}>{streak}</Text>
+          <View style={[styles.streakBadge, { borderColor: sColor }]}>
+            <Text style={styles.streakFire}>{streak >= 7 ? '🔥' : '⚡'}</Text>
+            <Text style={[styles.streakCount, { color: sColor }]}>{streak}</Text>
             <Text style={styles.streakLabel}>day streak</Text>
           </View>
         </View>
 
         {/* Goal Banner */}
         <View style={styles.goalBanner}>
-          <View>
+          <View style={{ flex: 1, marginRight: SPACING.sm }}>
             <Text style={styles.goalTitle}>Today's goal</Text>
-            <Text style={styles.goalSub}>
-              {profile?.goal === 'lose' && 'Burn fat and stay active today'}
-              {profile?.goal === 'muscle' && 'Complete your strength workout'}
-              {profile?.goal === 'endurance' && 'Hit your step and cardio goals'}
-              {profile?.goal === 'flex' && 'Stretch and move better today'}
-              {!profile?.goal && 'Log your habits to build your streak'}
-            </Text>
+            <Text style={styles.goalSub}>{dynamicGoal.label}</Text>
+            {dynamicGoal.sub ? <Text style={styles.goalMeta}>{dynamicGoal.sub}</Text> : null}
+            {dynamicGoal.progress !== null && (
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${Math.round(dynamicGoal.progress * 100)}%` }]} />
+              </View>
+            )}
           </View>
-          <TouchableOpacity style={styles.goalBtn}>
-            <Text style={styles.goalBtnText}>Start →</Text>
+          <TouchableOpacity style={styles.goalBtn} onPress={handleStartGoal} disabled={dynamicGoal.allDone}>
+            <Text style={styles.goalBtnText}>{dynamicGoal.allDone ? '✓' : 'Start →'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -94,13 +184,21 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Weekly Activity</Text>
-            <View style={styles.cardBadge}>
-              <Ionicons name="trending-up" size={12} color={COLORS.primary} />
-              <Text style={styles.cardBadgeText}>This week</Text>
+            {/* Metric toggle */}
+            <View style={styles.metricToggle}>
+              {CHART_METRICS.map((m, i) => (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[styles.metricChip, chartMetricIdx === i && { backgroundColor: m.color }]}
+                  onPress={() => setChartMetricIdx(i)}
+                >
+                  <Text style={[styles.metricChipText, chartMetricIdx === i && { color: '#001A13' }]}>{m.label}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
           <View style={{ marginTop: SPACING.md }}>
-            <BarChart data={chartData} height={100} color={COLORS.primary} />
+            <BarChart data={chartData} height={100} color={chartMetric.color} />
           </View>
         </View>
 
@@ -151,22 +249,26 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: SPACING.lg, marginTop: SPACING.sm },
   greeting: { fontSize: 15, color: COLORS.textSecondary },
   name: { fontSize: 28, color: COLORS.textPrimary, fontWeight: '700', marginTop: 2 },
-  streakBadge: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
+  streakBadge: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, alignItems: 'center', borderWidth: 1 },
   streakFire: { fontSize: 18 },
-  streakCount: { fontSize: 20, color: COLORS.primary, fontWeight: '700' },
+  streakCount: { fontSize: 20, fontWeight: '700' },
   streakLabel: { fontSize: 10, color: COLORS.textSecondary },
 
   goalBanner: { backgroundColor: COLORS.primary, borderRadius: RADIUS.lg, padding: SPACING.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.lg },
   goalTitle: { fontSize: 12, color: '#003D2B', fontWeight: '600', marginBottom: 4 },
   goalSub: { fontSize: 15, color: '#001A13', fontWeight: '600', maxWidth: 200 },
+  goalMeta: { fontSize: 11, color: '#003D2B', marginTop: 4 },
+  progressTrack: { height: 4, backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
+  progressFill: { height: 4, backgroundColor: '#001A13', borderRadius: 2 },
   goalBtn: { backgroundColor: '#001A13', borderRadius: RADIUS.full, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm },
   goalBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 13 },
 
   card: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.lg, borderWidth: 1, borderColor: COLORS.border },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardTitle: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '600' },
-  cardBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.bgInput, borderRadius: RADIUS.full, paddingHorizontal: SPACING.sm, paddingVertical: 3 },
-  cardBadgeText: { fontSize: 11, color: COLORS.primary, fontWeight: '500' },
+  metricToggle: { flexDirection: 'row', gap: 4 },
+  metricChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: RADIUS.full, backgroundColor: COLORS.bgInput },
+  metricChipText: { fontSize: 10, color: COLORS.textSecondary, fontWeight: '600' },
 
   sectionTitle: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: SPACING.sm, marginTop: SPACING.sm },
 

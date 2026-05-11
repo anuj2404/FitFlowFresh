@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRef, useEffect } from 'react';
 import useHabits from '../hooks/useHabits';
+import useProfile from '../hooks/useProfile';
 import AnimatedRing from '../components/AnimatedRing';
 import ProgressBar from '../components/ProgressBar';
 import { COLORS, SPACING, RADIUS } from '../constants/theme';
@@ -21,10 +22,40 @@ const MOODS = [
   { emoji: '🔥', label: 'Pumped' },
 ];
 
+// Per-goal targets
+const GOAL_TARGETS = {
+  lose:      { steps: 8000,  water: 8, sleep: 7 },
+  muscle:    { steps: 6000,  water: 6, sleep: 8 },
+  endurance: { steps: 10000, water: 8, sleep: 7 },
+  flex:      { steps: 5000,  water: 6, sleep: 8 },
+  default:   { steps: 8000,  water: 8, sleep: 8 },
+};
+
+const getMoodMessage = (mood, progress) => {
+  if (!mood) return null;
+  const pct = Math.round(progress * 100);
+  if (mood === 'Pumped') return pct >= 80 ? "You're on fire today! 🔥 Keep crushing it." : "Great energy! Channel it into your goals 💪";
+  if (mood === 'Good')   return pct >= 50 ? "Solid progress! Stay consistent 🎯" : "Good vibes — now let's back it up with action!";
+  if (mood === 'Okay')   return "Every rep counts, even on average days 🙌";
+  if (mood === 'Tired')  return pct >= 50 ? "Tired but still showing up — that's discipline 💯" : "Rest is part of the plan. Log what you can 🌙";
+  return null;
+};
+
 export default function LogScreen() {
   const { habits, loading, updateHabit, saveHabits } = useHabits();
+  const { profile } = useProfile();
 
-  // Fade-in animation on load
+  const targets = GOAL_TARGETS[profile?.goal] || GOAL_TARGETS.default;
+
+  // Overall progress across all three metrics
+  const overallProgress = (
+    Math.min(1, (habits.water || 0) / targets.water) +
+    Math.min(1, (habits.steps || 0) / targets.steps) +
+    Math.min(1, (habits.sleep || 0) / targets.sleep)
+  ) / 3;
+
+  const moodMessage = getMoodMessage(habits.mood, overallProgress);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -73,13 +104,23 @@ export default function LogScreen() {
           )}
         </View>
 
+        {/* Mood message */}
+        {moodMessage && (
+          <View style={styles.moodMessage}>
+            <Text style={styles.moodMessageText}>{moodMessage}</Text>
+          </View>
+        )}
+
         {/* Animated Rings Summary */}
         <View style={styles.ringsCard}>
-          <Text style={styles.cardTitle}>Today's Progress</Text>
+          <View style={styles.ringsCardHeader}>
+            <Text style={styles.cardTitle}>Today's Progress</Text>
+            <Text style={styles.progressPct}>{Math.round(overallProgress * 100)}%</Text>
+          </View>
           <View style={styles.ringsRow}>
-            <AnimatedRing value={habits.water} max={8} size={90} color="#4FC3F7" label="Water" unit="glasses" />
-            <AnimatedRing value={Math.round(habits.steps / 100)} max={100} size={90} color={COLORS.primary} label="Steps" unit={`${habits.steps.toLocaleString()}`} />
-            <AnimatedRing value={habits.sleep} max={8} size={90} color="#B39DDB" label="Sleep" unit="hrs" />
+            <AnimatedRing value={habits.water} max={targets.water} size={90} color="#4FC3F7" label="Water" unit="glasses" />
+            <AnimatedRing value={Math.round(habits.steps / 100)} max={Math.round(targets.steps / 100)} size={90} color={COLORS.primary} label="Steps" unit={`${habits.steps.toLocaleString()}`} />
+            <AnimatedRing value={habits.sleep} max={targets.sleep} size={90} color="#B39DDB" label="Sleep" unit="hrs" />
           </View>
         </View>
 
@@ -104,15 +145,17 @@ export default function LogScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>💧 Water</Text>
-            <Text style={styles.cardValue}>{habits.water} <Text style={styles.cardUnit}>/ 8 glasses</Text></Text>
+            <Text style={styles.cardValue}>
+              {habits.water} <Text style={styles.cardUnit}>/ {targets.water} glasses</Text>
+            </Text>
           </View>
-          <ProgressBar value={habits.water} max={8} color="#4FC3F7" />
+          <ProgressBar value={habits.water} max={targets.water} color="#4FC3F7" />
           <View style={styles.stepper}>
             <TouchableOpacity style={styles.stepBtn} onPress={() => updateHabit('water', Math.max(0, habits.water - 1))}>
               <Ionicons name="remove" size={20} color={COLORS.textPrimary} />
             </TouchableOpacity>
             <Text style={styles.stepValue}>{habits.water} glasses</Text>
-            <TouchableOpacity style={styles.stepBtn} onPress={() => updateHabit('water', Math.min(12, habits.water + 1))}>
+            <TouchableOpacity style={styles.stepBtn} onPress={() => updateHabit('water', Math.min(16, habits.water + 1))}>
               <Ionicons name="add" size={20} color={COLORS.textPrimary} />
             </TouchableOpacity>
           </View>
@@ -122,9 +165,11 @@ export default function LogScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>👟 Steps</Text>
-            <Text style={styles.cardValue}>{habits.steps.toLocaleString()} <Text style={styles.cardUnit}>/ 10,000</Text></Text>
+            <Text style={styles.cardValue}>
+              {habits.steps.toLocaleString()} <Text style={styles.cardUnit}>/ {targets.steps.toLocaleString()}</Text>
+            </Text>
           </View>
-          <ProgressBar value={habits.steps} max={10000} color={COLORS.primary} />
+          <ProgressBar value={habits.steps} max={targets.steps} color={COLORS.primary} />
           <View style={styles.stepper}>
             <TouchableOpacity style={styles.stepBtn} onPress={() => updateHabit('steps', Math.max(0, habits.steps - 500))}>
               <Ionicons name="remove" size={20} color={COLORS.textPrimary} />
@@ -140,9 +185,11 @@ export default function LogScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>🌙 Sleep</Text>
-            <Text style={styles.cardValue}>{habits.sleep}h <Text style={styles.cardUnit}>/ 8h goal</Text></Text>
+            <Text style={styles.cardValue}>
+              {habits.sleep}h <Text style={styles.cardUnit}>/ {targets.sleep}h goal</Text>
+            </Text>
           </View>
-          <ProgressBar value={habits.sleep} max={8} color="#B39DDB" />
+          <ProgressBar value={habits.sleep} max={targets.sleep} color="#B39DDB" />
           <View style={styles.stepper}>
             <TouchableOpacity style={styles.stepBtn} onPress={() => updateHabit('sleep', Math.max(0, parseFloat((habits.sleep - 0.5).toFixed(1))))}>
               <Ionicons name="remove" size={20} color={COLORS.textPrimary} />
@@ -173,21 +220,31 @@ const styles = StyleSheet.create({
   date: { fontSize: 13, color: COLORS.textSecondary, marginTop: 4 },
   savedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.bgCard, borderRadius: RADIUS.full, paddingHorizontal: SPACING.sm, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.primary },
   savedText: { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+
+  moodMessage: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border, borderLeftWidth: 3, borderLeftColor: COLORS.primary },
+  moodMessageText: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 20 },
+
   ringsCard: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border },
-  cardTitle: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '600', marginBottom: SPACING.sm },
+  ringsCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
+  cardTitle: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '600' },
+  progressPct: { fontSize: 13, color: COLORS.primary, fontWeight: '700' },
   ringsRow: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: SPACING.sm },
+
   card: { backgroundColor: COLORS.bgCard, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardValue: { fontSize: 15, color: COLORS.textPrimary, fontWeight: '700' },
   cardUnit: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '400' },
+
   moodRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACING.sm, gap: SPACING.sm },
   moodBtn: { flex: 1, backgroundColor: COLORS.bgInput, borderRadius: RADIUS.sm, padding: SPACING.sm, alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   moodBtnActive: { borderColor: COLORS.primary },
   moodEmoji: { fontSize: 22 },
   moodLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 4 },
+
   stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SPACING.md },
   stepBtn: { width: 40, height: 40, backgroundColor: COLORS.bgInput, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
   stepValue: { fontSize: 14, color: COLORS.textSecondary },
+
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, backgroundColor: COLORS.primary, borderRadius: RADIUS.full, padding: SPACING.md, marginTop: SPACING.sm },
   saveBtnText: { fontSize: 16, color: '#001A13', fontWeight: '700' },
 });
